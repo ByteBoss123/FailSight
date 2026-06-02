@@ -1,0 +1,167 @@
+================================================================
+FAILSIGHT — HOW TO RUN
+Semiconductor Equipment Failure Prediction System
+================================================================
+
+STEP 0 — GET THE DATASET
+----------------------------------------------------------------
+Option A (Real data — recommended):
+  1. Go to: https://www.kaggle.com/datasets/behrad3d/nasa-cmaps
+  2. Download: train_FD001.txt, test_FD001.txt, RUL_FD001.txt
+  3. Place in: failsight/data/raw/
+
+Option B (Synthetic — works out of the box):
+  Just skip this step. Synthetic fallback built into pipeline.py.
+
+
+STEP 1 — INSTALL
+----------------------------------------------------------------
+cd failsight
+pip install -r requirements.txt
+
+
+STEP 2 — ENVIRONMENT
+----------------------------------------------------------------
+Create .env file:
+
+  HUGGINGFACEHUB_API_TOKEN=your_token
+  # Free at: https://huggingface.co/settings/tokens
+
+
+STEP 3 — DATA PIPELINE
+----------------------------------------------------------------
+python data/pipeline.py
+
+Outputs:
+  data/processed/train.csv
+  data/processed/test.csv
+  data/processed/scaler.pkl
+  data/processed/feature_cols.pkl
+
+
+STEP 4 — TRAIN FAILURE PREDICTION MODELS
+----------------------------------------------------------------
+python models/survival/train.py
+
+Trains: GradientBoosting + LSTM + Ensemble
+All runs logged to MLflow automatically.
+
+View in browser:
+  mlflow ui        →   http://localhost:5000
+
+
+STEP 5 — BUILD MAINTENANCE LOG RAG INDEX
+----------------------------------------------------------------
+python agent/rag_pipeline.py
+
+Generates 200+ realistic maintenance logs,
+embeds with sentence-transformers,
+saves FAISS index to data/embeddings/
+
+
+STEP 6 — FINE-TUNE DISTILBERT FAILURE CLASSIFIER
+----------------------------------------------------------------
+python models/classifier/finetune.py
+
+Fine-tunes on semiconductor maintenance text.
+6 failure classes: pressure_spike, temperature_drift,
+rf_power_instability, particle_event, mechanical_wear,
+general_maintenance
+
+Model saved to: models/classifier/final/
+
+
+STEP 7 — DRIFT MONITORING
+----------------------------------------------------------------
+python monitoring/drift_monitor.py
+
+Runs 3 scenarios: normal, aging, degrading
+Reports saved to: monitoring/reports/
+
+
+STEP 8 — LAUNCH API
+----------------------------------------------------------------
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+Test:
+  curl -X POST http://localhost:8000/predict \
+    -H "Content-Type: application/json" \
+    -d '{"engine_id":"ETH-01","cycle":187,"sensor_2":641.82,
+         "sensor_3":1589.7,"sensor_4":1400.6,"sensor_7":553.9,
+         "sensor_8":2388.1,"sensor_9":9045.2,"sensor_11":47.1,
+         "sensor_12":521.7,"sensor_13":2388.1,"sensor_14":8137.6,
+         "sensor_15":8.4,"sensor_17":391.0,"sensor_20":38.8,
+         "sensor_21":23.4}'
+
+API docs:  http://localhost:8000/docs
+
+
+STEP 9 — LAUNCH DASHBOARD
+----------------------------------------------------------------
+streamlit run dashboard/app.py
+
+Opens at: http://localhost:8501
+
+
+STEP 10 — DEPLOY
+----------------------------------------------------------------
+API → Render.com (free):
+  1. Push repo to GitHub
+  2. New Web Service on render.com
+  3. Start command: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+  4. Free public URL
+
+Dashboard → Streamlit Cloud (free):
+  1. share.streamlit.io
+  2. Connect GitHub repo
+  3. Main file: dashboard/app.py
+
+
+================================================================
+YOUR 2-MINUTE INTERVIEW PITCH
+================================================================
+
+"Semiconductor fab equipment like CVD chambers and etch systems
+degrade over thousands of operating hours. When one fails
+unexpectedly, the fab line stops — chip manufacturers lose
+$1M or more per hour of downtime.
+
+I built FailSight, an end-to-end equipment failure prediction
+system that works like this:
+
+It ingests multivariate sensor telemetry from equipment —
+things like chamber pressure, temperature, and RF power —
+and predicts Remaining Useful Life using a gradient boosting
+model and an LSTM, both tracked with MLflow and served via
+a FastAPI endpoint deployed on Render.
+
+On top of that, I built a RAG agent using LangChain and FAISS
+that lets field engineers ask natural language questions over
+200 historical maintenance logs — things like 'what failed
+last time this chamber showed a pressure spike?' — so they can
+diagnose faster without searching through paper records.
+
+The failure type is simultaneously classified by a DistilBERT
+model I fine-tuned on semiconductor maintenance text using
+PyTorch and HuggingFace Transformers.
+
+Finally, Evidently AI monitors for sensor drift as the
+equipment ages, so the model knows when to retrain.
+
+The whole thing is deployed, the dashboard is live,
+and the API takes real sensor readings."
+
+================================================================
+WHAT EACH COMPONENT PROVES TO AN INTERVIEWER
+================================================================
+
+GradientBoosting + LSTM  → ML model development end-to-end
+MLflow                   → experiment tracking, versioning
+FastAPI on Render        → production deployment
+FAISS + LangChain        → embedding-based search, RAG
+DistilBERT fine-tuning   → LLM fine-tuning, PyTorch
+Evidently AI             → production monitoring, drift detection
+Streamlit dashboard      → stakeholder communication
+NASA CMAPSS dataset      → domain credibility, not a toy dataset
+
+================================================================
