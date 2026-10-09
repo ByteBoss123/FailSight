@@ -1,0 +1,147 @@
+{
+  "dataset": "NASA C-MAPSS FD001 (train 100 engines / 20,631 cycles; test 100 engines / 13,096 cycles)",
+  "rul_cap": 125,
+  "informative_sensors": [
+    "s2",
+    "s3",
+    "s4",
+    "s6",
+    "s7",
+    "s8",
+    "s9",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s17",
+    "s20",
+    "s21"
+  ],
+  "n_features": 91,
+  "validation_rmse_by_engine_holdout": {
+    "mean_baseline": 41.54,
+    "ridge_raw_sensors": 22.6,
+    "gradient_boosting_features": 17.58,
+    "lstm_tensorflow": 14.4
+  },
+  "test": {
+    "mean_baseline": {
+      "rmse": 41.94,
+      "nasa_score": 33354.5,
+      "early_warning_30_cycles": {
+        "engines_failing_within_horizon": 25,
+        "caught": 0,
+        "missed": 25,
+        "false_alarms": 0,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    "ridge_raw_sensors": {
+      "rmse": 21.3,
+      "nasa_score": 1188.3,
+      "early_warning_30_cycles": {
+        "engines_failing_within_horizon": 25,
+        "caught": 10,
+        "missed": 15,
+        "false_alarms": 0,
+        "precision": 1.0,
+        "recall": 0.4
+      }
+    },
+    "gradient_boosting_features": {
+      "rmse": 15.04,
+      "nasa_score": 373.3,
+      "early_warning_30_cycles": {
+        "engines_failing_within_horizon": 25,
+        "caught": 18,
+        "missed": 7,
+        "false_alarms": 1,
+        "precision": 0.947,
+        "recall": 0.72
+      }
+    },
+    "lstm_tensorflow": {
+      "rmse": 12.8,
+      "nasa_score": 284.9,
+      "early_warning_30_cycles": {
+        "engines_failing_within_horizon": 25,
+        "caught": 21,
+        "missed": 4,
+        "false_alarms": 1,
+        "precision": 0.955,
+        "recall": 0.84
+      }
+    },
+    "ensemble_gb_lstm": {
+      "rmse": 12.79,
+      "nasa_score": 274.6,
+      "early_warning_30_cycles": {
+        "engines_failing_within_horizon": 25,
+        "caught": 18,
+        "missed": 7,
+        "false_alarms": 1,
+        "precision": 0.947,
+        "recall": 0.72
+      }
+    }
+  },
+  "drift": {
+    "alert_psi": 0.25,
+    "baseline": "first 30 cycles of each engine",
+    "fd001_test_vs_train_whole_history_naive": {
+      "alert": true,
+      "max_psi": 0.3469,
+      "drifted_sensors": [
+        "s11",
+        "s4",
+        "s12",
+        "s7",
+        "s15",
+        "s21",
+        "s20"
+      ]
+    },
+    "fd001_test_vs_train": {
+      "alert": false,
+      "max_psi": 0.0401,
+      "drifted_sensors": []
+    },
+    "fd002_test_vs_fd001_train": {
+      "alert": true,
+      "max_psi": 3.6168,
+      "drifted_sensors": [
+        "s17",
+        "s11",
+        "s9",
+        "s20",
+        "s12",
+        "s21",
+        "s8",
+        "s7",
+        "s2",
+        "s15",
+        "s4",
+        "s3",
+        "s14",
+        "s6",
+        "s13"
+      ]
+    },
+    "gradient_boosting_on_fd002_without_retraining": {
+      "rmse": 35.51,
+      "nasa_score": 11480.7,
+      "early_warning_30_cycles": {
+        "engines_failing_within_horizon": 61,
+        "caught": 0,
+        "missed": 61,
+        "false_alarms": 0,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    }
+  },
+  "runtime_s": 113.7,
+  "selected_on_validation": "lstm_tensorflow"
+}

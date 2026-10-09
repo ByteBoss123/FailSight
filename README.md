@@ -1,164 +1,80 @@
-# FailSight — Semiconductor Equipment Failure Prediction System
+# FailSight: Equipment Failure Prediction from Sensor Telemetry
 
-> *"Unplanned downtime on a chip fab line costs $1M+ per hour.  
-> FailSight predicts equipment failures before they happen."*
+Predicts how many operating cycles a machine has left (remaining useful life, RUL) from its sensor telemetry,
+raises an early warning when failure is within 30 cycles, monitors incoming telemetry for drift, and serves
+predictions through a REST API. Trained and scored on NASA's C-MAPSS turbofan degradation dataset with the
+official test protocol.
 
----
+## Results at a glance
 
-## The Problem
+| Area | Result | Evidence |
+|---|---|---|
+| RUL prediction, official test set (100 engines) | TensorFlow LSTM RMSE **12.8** cycles vs 41.9 for a mean baseline; chosen on held-out training engines, not on the test set | `results/metrics.json` |
+| Early warning (fails within 30 cycles) | Caught 21 of 25 engines, 1 false alarm (precision 0.955, recall 0.84) | `results/metrics.json` |
+| Drift monitoring | No alert on same-condition telemetry (max PSI 0.04); alert on a 6-condition fleet (FD002, max PSI 3.6), where the model's RMSE rises to 35.5 and it catches 0 of 61 imminent failures | `results/metrics.json` |
+| Serving | FastAPI `/predict` and `/drift`; p50 133 ms per prediction on CPU (in-process test client) | `failsight/api.py` |
+| Tests | 9 pytest tests: data checksums, label alignment with NASA's RUL file, no look-ahead in features, engine-level split, metrics, drift, API | `tests/` |
 
-Semiconductor fabrication equipment — etch systems, CVD chambers, ion implanters —
-generates thousands of sensor readings per second. When a machine fails unexpectedly,
-the fab line stops. Engineers scramble. Chips are scrapped. Customers lose millions.
+## Data
 
-Most fabs react to failures. **FailSight predicts them.**
+NASA C-MAPSS (Saxena et al., PHM 2008), committed in `data/raw/` with SHA-256 checksums (two independent public
+mirrors were byte-identical). FD001: 100 training engines run to failure (20,631 cycles), 100 test engines cut
+off before failure (13,096 cycles) with NASA's true RUL. FD002 (six operating conditions) is used only as an
+unseen, shifted fleet for drift monitoring.
 
----
+## Method
 
-## What It Does
+- **Labels.** RUL capped at 125 cycles (standard piecewise-linear target; early life counts as healthy).
+- **Features** (`failsight/data.py`): the 15 sensors that vary (6 are flat in FD001), plus per-engine rolling
+  mean and standard deviation over 5 and 15 cycles and a 15-cycle slope, computed from past cycles only.
+- **Models** (`scripts/train_eval.py`): mean baseline, ridge regression, gradient boosting on 91 engineered
+  features, and a two-layer TensorFlow LSTM on 30-cycle sensor windows.
+- **Protocol.** 20% of training engines held out *by engine* for model selection; the selected setup is refit on
+  all training engines and scored once on the official test set (one prediction per engine, at its last cycle).
 
-1. **Ingests real-time sensor telemetry** from fab equipment (temperature, pressure, voltage, vibration, RF power)
-2. **Predicts time-to-failure** using survival analysis + ML on historical sensor patterns
-3. **Classifies failure type** using a fine-tuned DistilBERT on maintenance logs + error codes
-4. **Answers engineer questions** via a RAG agent: *"What failed last time Chamber 3 showed this pressure spike?"*
-5. **Monitors model drift** so predictions stay accurate as equipment ages
-6. **Serves risk scores** via REST API for integration with fab MES systems
+| Model | Validation RMSE | Test RMSE | NASA score (lower is better) | Warnings caught / false alarms |
+|---|---|---|---|---|
+| Mean baseline | 41.5 | 41.9 | 33,355 | 0 / 0 |
+| Ridge, raw sensors | 22.6 | 21.3 | 1,188 | 10 / 0 |
+| Gradient boosting, features | 17.6 | 15.0 | 373 | 18 / 1 |
+| **TensorFlow LSTM (selected)** | **14.4** | **12.8** | **285** | **21 / 1** |
+| GB + LSTM average | – | 12.8 | 275 | 18 / 1 |
 
----
+The average of the two models scores slightly better on RMSE but catches fewer imminent failures, so the LSTM alone
+is served.
 
-## Architecture
+## Drift monitoring
 
-```
-Sensor Telemetry (NASA CMAPSS Dataset — turbofan degradation)
-         ↓
-Data Pipeline (Python, Pandas, NumPy)
-         ↓
-Feature Engineering (rolling stats, degradation signals, RUL labels)
-         ↓
-┌─────────────────────────────────────────────────────┐
-│  Failure Prediction Models                          │
-│  ├── Random Survival Forest (time-to-failure)       │
-│  ├── LSTM (sequence-based RUL prediction)           │
-│  └── Gradient Boosting (binary failure classifier)  │
-└─────────────────────────────────────────────────────┘
-         ↓
-MLflow (experiment tracking + model versioning)
-         ↓
-FastAPI (real-time risk score endpoint)
-         ↓
-┌─────────────────────────────────────────────────────┐
-│  FailSight Agent                                    │
-│  ├── FAISS vector store (maintenance logs)          │
-│  ├── LangChain RAG chain                            │
-│  └── Fine-tuned DistilBERT (failure classifier)     │
-└─────────────────────────────────────────────────────┘
-         ↓
-Evidently AI (sensor drift + model performance monitoring)
-         ↓
-Streamlit Dashboard (unified engineer interface)
-```
+`failsight/drift.py` computes the Population Stability Index (PSI) per sensor against training telemetry and alerts
+above 0.25.
 
----
+The first version compared whole engine histories and **raised a false alarm on FD001's own test set** (max PSI 0.35):
+test engines are cut off earlier in life, so they look less worn than training engines that ran to failure. Wear is
+what the model predicts, not drift. The monitor now compares each engine's first 30 cycles (its healthy baseline):
 
-## Dataset
-
-**NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation)**
-- Real degradation dataset used in predictive maintenance research
-- 100+ engines with multivariate sensor readings over time
-- Ground truth: Remaining Useful Life (RUL) per engine
-- Download: https://www.kaggle.com/datasets/behrad3d/nasa-cmaps
-
-*Why this dataset?* It's the industry standard benchmark for predictive maintenance ML.
-Semiconductor fab equipment degrades the same way — gradual sensor drift until failure.
-Using this dataset shows domain understanding, not just tutorial-following.
-
----
-
-## Tech Stack
-
-| Layer | Tools |
-|---|---|
-| Survival Analysis | scikit-survival, lifelines |
-| ML Models | scikit-learn, XGBoost, PyTorch (LSTM) |
-| MLOps | MLflow, FastAPI, Uvicorn |
-| GenAI / RAG | LangChain, FAISS, sentence-transformers |
-| Fine-tuning | HuggingFace Transformers, DistilBERT, PyTorch |
-| Monitoring | Evidently AI |
-| Dashboard | Streamlit, Plotly |
-
----
-
-## Project Structure
-
-```
-failsight/
-├── data/
-│   ├── raw/                    # NASA CMAPSS dataset
-│   ├── processed/              # Engineered features + RUL labels
-│   └── embeddings/             # FAISS maintenance log index
-├── models/
-│   ├── survival/               # RSF + GBM + LSTM artifacts
-│   └── classifier/             # Fine-tuned DistilBERT
-├── api/
-│   └── main.py                 # FastAPI risk score endpoint
-├── agent/
-│   ├── rag_pipeline.py         # LangChain RAG over maintenance logs
-│   └── failsight_agent.py      # Agentic diagnostic workflow
-├── monitoring/
-│   └── drift_monitor.py        # Evidently AI sensor + model drift
-├── dashboard/
-│   └── app.py                  # Streamlit engineer interface
-├── notebooks/
-│   ├── 01_eda.ipynb
-│   ├── 02_rul_prediction.ipynb
-│   └── 03_finetuning.ipynb
-├── requirements.txt
-├── HOW_TO_RUN.txt
-└── README.md
-```
-
----
-
-## Key Results (update after training)
-
-| Model | RMSE (RUL) | MAE (RUL) | Notes |
+| Fleet | Max PSI | Alert | Model on that fleet |
 |---|---|---|---|
-| Gradient Boosting | TBD | TBD | Fast, interpretable |
-| Random Survival Forest | TBD | TBD | Handles censored data |
-| LSTM | TBD | TBD | Best on sequence patterns |
-| Ensemble | TBD | TBD | Production model |
+| FD001 test (same conditions) | 0.04 | no | RMSE 12.8 |
+| FD002 test (6 operating conditions) | 3.62 | yes, 15 sensors | RMSE 35.5, 0 of 61 imminent failures caught |
 
----
+So the alert fires exactly when the model stops being trustworthy, before any failure labels exist.
 
-## Live Demo
-- API: [Render URL]
-- Dashboard: [Streamlit Cloud URL]
-- MLflow Screenshots: /assets/
+## Run
 
----
+```bash
+pip install -r requirements.txt
+python scripts/train_eval.py        # ~2 min on CPU; writes results/metrics.json and models/
+pytest -q tests
+uvicorn failsight.api:app
+```
 
-## Interview Story (2 minutes)
+## Limitations
 
-*"Semiconductor fab equipment like etch chambers and CVD systems
-degrade over time through thousands of hours of operation.
-When they fail unexpectedly, fab lines stop — at $1M+ per hour.
+- Turbofan engines, not semiconductor tools: the method (telemetry windows, RUL, early warning, drift) transfers,
+  the sensors do not.
+- One fault mode (FD001). Multi-condition fleets (FD002/FD004) need per-condition normalization and retraining;
+  the drift monitor is what tells you so.
+- Single training run per model (seed 0); seed-to-seed variance was not measured.
 
-I built FailSight, a predictive maintenance system that ingests
-sensor telemetry, predicts remaining useful life using survival
-analysis and gradient boosting tracked with MLflow, and serves
-real-time risk scores via a FastAPI endpoint.
-
-On top of that, I built a RAG agent that lets field engineers
-ask natural language questions over historical maintenance logs —
-things like 'what failed last time Chamber 3 showed this
-pressure pattern?' — using LangChain and FAISS embeddings.
-
-The failure type classifier uses a fine-tuned DistilBERT on
-maintenance text, and Evidently AI monitors for sensor drift
-so the model stays accurate as equipment ages.
-
-The whole system is deployed and publicly accessible."*
-
----
-
-**Author:** Amarnath | MS Data Analytics Engineering, George Mason University
+This repo previously held an unfinished version (results marked "TBD", synthetic-data fallback). It was rebuilt
+on the real dataset; the unfinished RAG and DistilBERT components were removed rather than shipped untested.

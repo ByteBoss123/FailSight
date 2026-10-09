@@ -1,0 +1,4 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+models/failsight_gb.joblib
