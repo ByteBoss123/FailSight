@@ -98,5 +98,8 @@ def test_api_predict_and_drift(client):
         client.post("/predict", json={"readings": eng[s].tail(30).to_dict("records")})
     assert (time.perf_counter() - t) / 20 < 1.0
     assert client.post("/predict", json={"readings": [{"s2": 1.0}]}).status_code == 422
+    partial = eng[s].tail(2).to_dict("records")
+    partial[0].pop(s[0])
+    assert client.post("/predict", json={"readings": partial}).status_code == 422
     _, te2, _ = D.load("FD002")
     assert client.post("/drift", json={"readings": early_life(te2)[s].to_dict("records")}).json()["alert"]

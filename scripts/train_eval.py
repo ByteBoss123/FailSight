@@ -135,6 +135,10 @@ def main():
     best = min(val_scores, key=val_scores.get)
     res["selected_on_validation"] = best
     lstm.save(MODELS / "failsight_lstm.keras")
+    (MODELS / "failsight_lstm_meta.json").write_text(json.dumps({
+        "mu": mu.tolist(), "sd": sd.tolist(), "sensors": sensors, "seq": SEQ,
+        "rul_cap": D.RUL_CAP, "reference": early_life(tr_raw)[sensors].to_dict(orient="list")
+    }) + "\n")
     joblib.dump({"mu": mu, "sd": sd, "sensors": sensors, "seq": SEQ, "rul_cap": D.RUL_CAP,
                  "reference": early_life(tr_raw)[sensors]}, MODELS / "failsight_lstm_meta.joblib")
     (OUT / "metrics.json").write_text(json.dumps(res, indent=2))
