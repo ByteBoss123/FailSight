@@ -11,7 +11,7 @@ official test protocol.
 |---|---|---|
 | RUL prediction, official test set (100 engines) | TensorFlow LSTM RMSE **12.8** cycles vs 41.9 for a mean baseline; chosen on held-out training engines, not on the test set | `results/metrics.json` |
 | Early warning (fails within 30 cycles) | Caught 21 of 25 engines, 1 false alarm (precision 0.955, recall 0.84) | `results/metrics.json` |
-| Drift monitoring | No alert on same-condition telemetry (max PSI 0.04); alert on a 6-condition fleet (FD002, max PSI 3.6), where the model's RMSE rises to 35.5 and it catches 0 of 61 imminent failures | `results/metrics.json` |
+| Drift monitoring | No alert on same-condition telemetry (max PSI 0.04); alert on a 6-condition fleet (FD002, max PSI 3.6), where the saved LSTM's RMSE rises to 33.88 and it catches 0 of 61 imminent failures | `results/metrics.json` |
 | Serving | FastAPI `/predict` and `/drift`; p50 133 ms per prediction on CPU (in-process test client) | `failsight/api.py` |
 | Tests | 9 pytest tests: data checksums, label alignment with NASA's RUL file, no look-ahead in features, engine-level split, metrics, drift, API | `tests/` |
 
@@ -52,12 +52,14 @@ The first version compared whole engine histories and **raised a false alarm on 
 test engines are cut off earlier in life, so they look less worn than training engines that ran to failure. Wear is
 what the model predicts, not drift. The monitor now compares each engine's first 30 cycles (its healthy baseline):
 
-| Fleet | Max PSI | Alert | Model on that fleet |
+| Fleet | Max PSI | Alert | Saved LSTM on that fleet |
 |---|---|---|---|
 | FD001 test (same conditions) | 0.04 | no | RMSE 12.8 |
-| FD002 test (6 operating conditions) | 3.62 | yes, 15 sensors | RMSE 35.5, 0 of 61 imminent failures caught |
+| FD002 test (6 operating conditions) | 3.62 | yes, 15 sensors | RMSE 33.88, 0 of 61 imminent failures caught |
 
-So the alert fires exactly when the model stops being trustworthy, before any failure labels exist.
+On these two benchmark fleets, the alert accompanies a substantial degradation in prediction quality. This does not prove that the monitor detects every future model failure.
+
+The original `metrics.json` shifted-fleet score (RMSE 35.51) is for gradient boosting. The saved LSTM is now evaluated separately in [saved_lstm_evaluation.json](results/saved_lstm_evaluation.json).
 
 ## Run
 
@@ -78,3 +80,20 @@ uvicorn failsight.api:app
 
 This repo previously held an unfinished version (results marked "TBD", synthetic-data fallback). It was rebuilt
 on the real dataset; the unfinished RAG and DistilBERT components were removed rather than shipped untested.
+
+## Decision supported and reproducibility review
+
+**Decision:** which equipment should a maintenance planner review first, and when should a model be held back pending validation on changed operating conditions?
+This is a personal project on NASA's simulated turbofan degradation benchmark, not factory deployment or measured downtime savings.
+The FD002 result is a reason to require validation/retraining before using this model on a different fleet, not a universal maintenance claim.
+
+October 14 review: the committed LSTM reproduces FD001 RMSE 12.8, 21/25 imminent failures caught, and one false alarm.
+Nine tests pass, including API execution, partial-sensor rejection, labels, timing checks, and drift.
+Model metadata now loads from portable JSON instead of a pandas-version-dependent pickle; the legacy joblib file remains for provenance.
+
+```bash
+python scripts/evaluate_saved.py  # original saved LSTM, no retraining; writes both fleet scores
+python -m pytest -q
+```
+
+This review did not retrain the LSTM or measure seed-to-seed variability. Sensor incompleteness/nonfinite values are rejected with HTTP 422.

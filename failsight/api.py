@@ -5,6 +5,7 @@
     POST /drift   {"readings": [...]}   # a fleet's early-life readings: PSI per sensor vs training telemetry
 """
 import os
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -29,7 +30,8 @@ class Readings(BaseModel):
 @lru_cache
 def _model():
     import tensorflow as tf
-    meta = joblib.load(MODELS / "failsight_lstm_meta.joblib")
+    meta = json.loads((MODELS / "failsight_lstm_meta.json").read_text())
+    meta["reference"] = pd.DataFrame(meta["reference"])
     return tf.keras.models.load_model(MODELS / "failsight_lstm.keras"), meta
 
 
@@ -38,6 +40,8 @@ def _frame(readings, sensors):
     missing = [s for s in sensors if s not in df]
     if missing:
         raise HTTPException(422, f"missing sensors: {missing}")
+    if not np.isfinite(df[sensors].to_numpy()).all():
+        raise HTTPException(422, "every reading must contain finite values for all required sensors")
     return df[sensors]
 
 

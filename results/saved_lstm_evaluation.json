@@ -1,0 +1,27 @@
+{
+  "FD001": {
+    "rmse": 12.8,
+    "nasa_score": 284.9,
+    "early_warning_30_cycles": {
+      "engines_failing_within_horizon": 25,
+      "caught": 21,
+      "missed": 4,
+      "false_alarms": 1,
+      "precision": 0.955,
+      "recall": 0.84
+    }
+  },
+  "FD002": {
+    "rmse": 33.88,
+    "nasa_score": 11397.2,
+    "early_warning_30_cycles": {
+      "engines_failing_within_horizon": 61,
+      "caught": 0,
+      "missed": 61,
+      "false_alarms": 0,
+      "precision": 0.0,
+      "recall": 0.0
+    }
+  },
+  "scope": "Committed LSTM, no retraining; official last-cycle engine predictions"
+}
